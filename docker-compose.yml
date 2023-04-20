@@ -1,0 +1,120 @@
+version: '3'
+services:
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - "9870:9870"
+    volumes:
+      - ./hadoop-data/namenode:/hadoop/dfs/name
+      - ./config/core-site.xml:/usr/local/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/usr/local/hadoop/etc/hadoop/hdfs-site.xml
+      - ./config/mapred-site.xml:/usr/local/hadoop/etc/hadoop/mapred-site.xml
+      - ./config/yarn-site.xml:/usr/local/hadoop/etc/hadoop/yarn-site.xml
+      - ./config/workers:/usr/local/hadoop/etc/hadoop/workers
+    environment:
+      - CLUSTER_NAME=hadoop
+      - SERVICE_PRECONDITION=namenode
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    ports:
+      - "9864:9864"
+    volumes:
+      - ./hadoop-data/datanode:/hadoop/dfs/data
+      - ./config/core-site.xml:/usr/local/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/usr/local/hadoop/etc/hadoop/hdfs-site.xml
+      - ./config/mapred-site.xml:/usr/local/hadoop/etc/hadoop/mapred-site.xml
+      - ./config/yarn-site.xml:/usr/local/hadoop/etc/hadoop/yarn-site.xml
+      - ./config/workers:/usr/local/hadoop/etc/hadoop/workers
+    environment:
+      - CLUSTER_NAME=hadoop
+      - SERVICE_PRECONDITION=datanode
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    container_name: resourcemanager
+    ports:
+      - "8088:8088"
+      - "8188:8188"
+      - "8042:8042"
+    volumes:
+      - ./config/core-site.xml:/usr/local/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/usr/local/hadoop/etc/hadoop/hdfs-site.xml
+      - ./config/mapred-site.xml:/usr/local/hadoop/etc/hadoop/mapred-site.xml
+      - ./config/yarn-site.xml:/usr/local/hadoop/etc/hadoop/yarn-site.xml
+      - ./config/workers:/usr/local/hadoop/etc/hadoop/workers
+    environment:
+      - CLUSTER_NAME=hadoop
+      - SERVICE_PRECONDITION=resourcemanager
+
+  nodemanager:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: nodemanager
+    volumes:
+      - ./config/core-site.xml:/usr/local/hadoop/etc/hadoop/core-site.xml
+      - ./config/hdfs-site.xml:/usr/local/hadoop/etc/hadoop/hdfs-site.xml
+      - ./config/mapred-site.xml:/usr/local/hadoop/etc/hadoop/mapred-site.xml
+      - ./config/yarn-site.xml:/usr/local/hadoop/etc/hadoop/yarn-site.xml
+      - ./config/workers:/usr/local/hadoop/etc/hadoop/workers
+    environment:
+      - CLUSTER_NAME=hadoop
+      - SERVICE_PRECONDITION=nodemanager 
+  pyspark-notebook:
+      image: jupyter/pyspark-notebook:latest
+      container_name: pyspark-notebook
+      ports:
+        - "8888:8888"
+      environment:
+        - PYSPARK_DRIVER_PYTHON=jupyter
+        - PYSPARK_DRIVER_PYTHON_OPTS=notebook
+        - SPARK_HOME=/usr/local/spark
+        - SPARK_OPTS=--master=yarn --deploy-mode=client
+        - HADOOP_CONF_DIR=/usr/local/hadoop/etc/hadoop
+        - HADOOP_USER_NAME=root
+        - SPARK_USER=root
+      volumes:
+        - ./notebook:/home/jovyan/work
+      depends_on:
+        - namenode
+        - resourcemanager
+        - datanode
+        - nodemanager
+
+    mongo:
+      image: mongo
+      container_name: mongo
+      ports:
+        - "27017:27017"
+      volumes:
+        - ./mongo-data:/data/db
+
+    spark-submit:
+      image: bde2020/spark-submit:2.4.5-hadoop2.7
+      container_name: spark-submit
+      volumes:
+        - ./config:/opt/spark/conf
+        - ./jars:/opt/spark/jars
+      depends_on:
+        - namenode
+        - resourcemanager
+        - datanode
+        - nodemanager
+        - mongo
+      environment:
+        - ENABLE_INIT_DAEMON=false
+        - SPARK_APPLICATION_ARGS=--packages org.mongodb.spark:mongo-spark-connector_2.11:2.4.2 pyspark-mongo.py
+        - SPARK_MASTER=yarn
+        - SPARK_DEPLOY_MODE=client
+        - SPARK_DRIVER_MEMORY=1g
+        - SPARK_EXECUTOR_MEMORY=1g
+        - SPARK_EXECUTOR_CORES=1
+        - SPARK_YARN_APP_NAME=SparkMongoExample
+        - HADOOP_CONF_DIR=/usr/local/hadoop/etc/hadoop
+        - HADOOP_USER_NAME=root
+        - SPARK_USER=root
+        - SPARK_HOME=/opt/spark
+      command: >
+        bash -c "wget -O /opt/spark/jars/mongo-spark-connector_2.11-2.4.2.jar https://repo1.maven.org/maven2/org/mongodb/spark/mongo-spark-connector_2.11/2.4.2/mongo-spark-connector_2.11-2.4.2.jar
+        && spark-submit --conf spark.mongodb.input.uri=mongodb://mongo:27017/test.myCollection --conf spark.mongodb.output.uri=mongodb://mongo:27017/test.myCollection --jars /opt/spark/jars/mongo-spark-connector_2.11-2.4.2.jar /app/pyspark-mongo.py"
